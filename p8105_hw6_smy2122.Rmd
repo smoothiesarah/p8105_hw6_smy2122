@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+set.seed(1)
 ```
 
 ## Problem 1
@@ -18,20 +19,23 @@ First, I will import the data.
 
 ```{r raw data}
 homicide_data =
-  read.csv("./data/homicide-data.csv")
 ```
 
-Next, I will clean the data and filter the data to necessary items.
+Next, I will import and clean the data, including filtering the data to necessary items.
 
 ```{r cleaning data}
 homicide_data =
-  homicide_data |>
+  read.csv(
+    "./data/homicide-data.csv",
+    na = "Unknown") |>
   janitor::clean_names() |>
+  drop_na() |>
   mutate(
     victim_last = str_to_title(victim_last),
     victim_first = str_to_title(victim_first),
     city_state = paste(city, state, sep = ", "),
-    solved = case_when(
+    victim_age = as.numeric(victim_age),
+    status = case_when(
       disposition == "Closed without arrest" ~ "Solved",
       disposition == "Closed by arrest" ~ "Solved",
       disposition == "Open/No arrest" ~ "Unsolved")) |>
@@ -39,6 +43,42 @@ homicide_data =
   filter(victim_race == "White" | victim_race == "Black")
 ```
 
+Now, I will fit a logistic regression for Baltimore, MD with `status` as the outcome and `victim_age`, `victim_sex`, and `victim_race` as predictors. I will tidy the output and obtain an estimate of the odds ratio.
+
+```{r}
+status_fit =
+  glm(status ~ victim_age + victim_sex + victim_race, data = homicide_data, family = "binomial") |>
+  broom::tidy() |>
+  mutate(OR = exp(estimate))
+
+status_fit
+```
+
 ## Problem 2
+
+First, I will download and clean the weather data set as instructed.
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2022-01-01",
+    date_max = "2022-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+
+Now, I will create a simple linear regression with `tmax` as the outcome and `tmin` and `prcp` as the predictors.
+
+```{r}
+tmax_fit = lm(tmax ~ tmin + prcp, data = weather_df) |>
+  broom::tidy()
+
+tmax_fit
+```
 
 ## Problem 3
