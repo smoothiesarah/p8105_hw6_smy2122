@@ -8,22 +8,16 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r message = FALSE}
 library(tidyverse)
 set.seed(1)
 ```
 
 ## Problem 1
 
-First, I will import the data.
+First, I will import and clean the data, including filtering the data to necessary items.
 
-```{r raw data}
-homicide_data =
-```
-
-Next, I will import and clean the data, including filtering the data to necessary items.
-
-```{r cleaning data}
+```{r cleaning homicide data}
 homicide_data =
   read.csv(
     "./data/homicide-data.csv",
@@ -45,9 +39,16 @@ homicide_data =
 
 Now, I will fit a logistic regression for Baltimore, MD with `status` as the outcome and `victim_age`, `victim_sex`, and `victim_race` as predictors. I will tidy the output and obtain an estimate of the odds ratio.
 
-```{r}
+```{r logistic regression}
+regression_data =
+  homicide_data |>
+  mutate(
+    status = case_when(
+      status == "Solved" ~ 1,
+      status == "Unsolved" ~ 0))
+
 status_fit =
-  glm(status ~ victim_age + victim_sex + victim_race, data = homicide_data, family = "binomial") |>
+  glm(status ~ victim_age + victim_sex + victim_race, data = regression_data, family = "binomial") |>
   broom::tidy() |>
   mutate(OR = exp(estimate))
 
@@ -58,7 +59,7 @@ status_fit
 
 First, I will download and clean the weather data set as instructed.
 
-```{r}
+```{r cleaning weather data, message = FALSE}
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -74,11 +75,182 @@ weather_df =
 
 Now, I will create a simple linear regression with `tmax` as the outcome and `tmin` and `prcp` as the predictors.
 
-```{r}
-tmax_fit = lm(tmax ~ tmin + prcp, data = weather_df) |>
-  broom::tidy()
+```{r linear regression}
+tmax_fit = lm(tmax ~ tmin + prcp, data = weather_df)
+```
 
-tmax_fit
+Now, I will pull r-squared.
+
+```{r}
+r2 =
+  tmax_fit |>
+  broom::glance() |>
+  select(r.squared)
+```
+
+Now, I will pull β̂ 1 and β̂ 2.
+
+```{r}
+betas =
+  tmax_fit |>
+  broom::tidy() |>
+  select(term, estimate)
+
+beta1 = 
+  betas |>
+  filter(term == "tmin") |>
+  select(estimate)
+
+beta2 =
+  betas |>
+  filter(term == "prcp") |>
+  select(estimate)
+
+log_beta1_beta2 = log(beta1 * beta2)
+
+df =
+  tibble(
+    r2 = r2,
+    log = log_beta1_beta2
+  )
+```
+
+I will create the bootstrap sample function.
+
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+
+## I should also test if it is working
+```
+
+Next, I will draw 5000 bootstrap samples.
+
+```{r}
+boot_straps = 
+  tibble(strap_number = 1:5000) |> 
+  mutate(
+    strap_sample_r2 = map(strap_number, \(i) boot_sample(df = df)))
+
+boot_straps
+```
+
+Now, I will identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r-squared and the log of B1 and B2.
+
+```{r}
 ```
 
 ## Problem 3
+
+I will import the birthweight data set.
+
+```{r}
+birthweight_df =
+  read_csv("./data/birthweight.csv")
+```
+
+```{r ggplots}
+birthweight_df |>
+  ggplot(aes(x = babysex, y = bwt, group = babysex)) + geom_boxplot()
+
+birthweight_df |>
+  ggplot(aes(x = bhead, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = blength, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = delwt, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = fincome, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = frace, y = bwt, group = frace)) + geom_violin()
+
+birthweight_df |>
+  ggplot(aes(x = gaweeks, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = malform, y = bwt, group = malform)) + geom_boxplot()
+
+birthweight_df |>
+  ggplot(aes(x = menarche, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = mheight, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = momage, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = mrace, y = bwt, group = mrace)) + geom_violin()
+
+birthweight_df |>
+  ggplot(aes(x = parity, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = ppbmi, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = ppwt, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = smoken, y = bwt)) + geom_point()
+
+birthweight_df |>
+  ggplot(aes(x = wtgain, y = bwt)) + geom_point()
+
+## pnumlbw and pnumsga were all 0 so they were excluded from plots
+```
+
+```{r correlations}
+cor.test(birthweight_df$bwt, birthweight_df$bhead, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$blength, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$delwt, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$fincome, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$gaweeks, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$menarche, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$mheight, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$momage, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$parity, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$ppbmi, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$ppwt, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$smoken, method = "pearson")
+
+cor.test(birthweight_df$bwt, birthweight_df$wtgain, method = "pearson")
+
+t.test(birthweight_df$bwt, birthweight_df$babysex)
+
+t.test(birthweight_df$bwt, birthweight_df$malform)
+
+aov(birthweight_df$bwt ~ birthweight_df$frace)
+
+aov(birthweight_df$bwt ~ birthweight_df$mrace)
+
+## pnumlbw and pnumsga were all 0 so they were excluded from correlation testing
+```
+
+High correlations above 0.7: bhead, blength
+
+*Add-predictions & add_residuals
+
+Now, I will compare my model to two others:
+
+```{r}
+model_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+
+model_2 = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
+```
