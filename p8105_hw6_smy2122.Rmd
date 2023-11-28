@@ -17,7 +17,7 @@ set.seed(1)
 
 First, I will import and clean the data, including filtering the data to necessary items.
 
-```{r cleaning homicide data}
+```{r homicide data}
 homicide_data =
   read.csv(
     "./data/homicide-data.csv",
@@ -57,9 +57,9 @@ status_fit
 
 ## Problem 2
 
-First, I will download the weather data set as instructed.
+First, I will download the cleaned weather data set as instructed.
 
-```{r downloading weather data, message = FALSE}
+```{r weather data, message = FALSE}
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -73,69 +73,17 @@ weather_df =
   select(name, id, everything())
 ```
 
-Now, I will create a simple linear regression with `tmax` as the outcome and `tmin` and `prcp` as the predictors.
+I will now create a simple linear regression with `tmax` as the outcome and `tmin` and `prcp` as the predictors.
 
 ```{r linear regression}
 tmax_fit = lm(tmax ~ tmin + prcp, data = weather_df)
+
+tmax_fit
 ```
 
-Now, I will pull r-squared.
+Next, I will draw 5,000 bootstrap samples and produce estimates of r-squared using `broom::glance`.
 
-```{r}
-r2 =
-  tmax_fit |>
-  broom::glance() |>
-  select(r.squared)
-
-r2
-```
-
-Now, I will pull β̂ 1 and β̂ 2.
-
-```{r}
-betas =
-  tmax_fit |>
-  broom::tidy() |>
-  select(term, estimate)
-
-beta1 = 
-  betas |>
-  filter(term == "tmin") |>
-  select(estimate)
-
-beta2 =
-  betas |>
-  filter(term == "prcp") |>
-  select(estimate)
-
-log_beta1_beta2 = log(abs(beta1 * beta2))
-```
-
-I will draw 5,000 bootstrap samples and produce estimates of log(β̂ 1∗β̂ 2) using `broom::tidy()` and `pivot_wider`.
-
-```{r}
-prcp_tmin_bootstrap =
-  weather_df |>
-  modelr::bootstrap(n = 5000) |>
-  mutate(
-    models = map(strap, \(weather_df) lm(tmax ~ tmin + prcp, data = weather_df)),
-    results = map(models, broom::tidy),
-    sample_number = row_number()) |>
-  unnest(results) |>
-  filter(term %in% c("prcp", "tmin")) |>
-  pivot_wider(
-    id_cols = sample_number,
-    names_from = term,
-    values_from = estimate) |>
-  mutate(
-    log = log(abs(tmin * prcp)))
-
-prcp_tmin_bootstrap
-```
-
-I will draw 5,000 bootstrap samples and produce estimates of r-squared using `broom::glance`.
-
-```{r}
+```{r r2 bootstrap}
 r2_bootstrap =
   weather_df |>
   modelr::bootstrap(n = 5000) |>
@@ -149,135 +97,134 @@ r2_bootstrap =
 r2_bootstrap
 ```
 
-Now, I will identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r-squared and the log of B1 and B2.
+I will draw 5,000 bootstrap samples and produce estimates of log(β̂ 1∗β̂ 2) using `broom::tidy()` and `pivot_wider`.
 
-```{r}
+```{r log bootstrap, message = FALSE}
+log_bootstrap =
+  weather_df |>
+  modelr::bootstrap(n = 5000) |>
+  mutate(
+    models = map(strap, \(weather_df) lm(tmax ~ tmin + prcp, data = weather_df)),
+    results = map(models, broom::tidy),
+    sample_number = row_number()) |>
+  unnest(results) |>
+  filter(term %in% c("prcp", "tmin")) |>
+  pivot_wider(
+    id_cols = sample_number,
+    names_from = term,
+    values_from = estimate) |>
+  mutate(
+    log = log(tmin * prcp))
+
+log_bootstrap
+```
+
+Since ∗β̂ 2  is negative, `r sum(is.na(pull(log_bootstrap, log)))/5000*100` % of estimates of log from the bootstrap samples were negative and thus returned NaN.
+
+Now, I will plot the distribution of the estimates of r-squared and log(β̂ 1∗β̂ 2) from the bootstrap samples.
+
+```{r distributions}
+r2_bootstrap |>
+  ggplot(aes(x = r.squared)) + geom_density()
+
+log_bootstrap |>
+  ggplot(aes(x = log)) + geom_density()
+```
+
+The density plot for r-squared shows that the peak is around the mean, which is `r r2_bootstrap |> summarize(mean = mean(r.squared))`. The minimum is `r r2_bootstrap |> min(pull(r2_bootstrap, r.squared))` and the maximum is `r r2_bootstrap |> max(pull(r2_bootstrap, r.squared))`. These r-squared values indicate that the model (in other words, minimum temperature and average precipitation) predicts over `r (r2_bootstrap |> min(pull(r2_bootstrap, r.squared)))*100`% and an average of `r r2_bootstrap |> summarize(mean = mean(r.squared))` of the variability in maximum temperature. This model is a great fit.
+
+Finally, I will identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r-squared and log(β̂ 1∗β̂ 2). However, I dropped negative log values from the bootstrap sample to construct confidence intervals for estimates that are not missing.
+
+```{r confidence intervals}
 r2_bootstrap_ci =
   r2_bootstrap |>
-  summarize(
+  mutate(
     ci_lower = quantile(r.squared, 0.025),
     ci_upper = quantile(r.squared, 0.975))
 
 r2_bootstrap_ci
 
-prcp_tmin_bootstrap_ci =
-  prcp_tmin_bootstrap |>
-  summarize(
-    ci_lower = quantile(log, 0.025),
-    ci_upper = quantile(log, 0.975))
+log_bootstrap_ci =
+  log_bootstrap |>
+  drop_na(log) |>
+  mutate(
+    ci_lower = quantile(log, 0.025, na.rm = TRUE),
+    ci_upper = quantile(log, 0.975, na.rm = TRUE))
 
-prcp_tmin_bootstrap_ci
+log_bootstrap_ci
 ```
 
 ## Problem 3
 
-I will import the birthweight data set.
+I will import and clean the birthweight data set. Data cleaning involves removing "Unknown" race values and converting numeric values to factors.
 
-```{r}
+```{r birthweight cleaning, message = FALSE}
 birthweight_df =
-  read_csv("./data/birthweight.csv")
+  read_csv("./data/birthweight.csv") |>
+  filter(frace != 9) |>
+  mutate(
+    frace = as.factor(frace),
+    mrace = as.factor(mrace))
 ```
 
-I will use a data-driven modeling process to propose a regression model for birthweight. I compare my findings from  two methods: first, I will create ggplots to look at trends in each variable against `bwt` on the y-axis and look at the strongest visual trends, and second, I will run statistical tests (correlations, t-tests, or ANOVAs depending on the type of independent variable) against `bwt` as the dependent variable and look at the strongest numeric correlations or largest test statistic. I expect to see consistency between the two methods (ggplots and statistics) and will include the variables with the strongest visual or numeric relationships in my model.
+I will use a combination of a data-driven and theory/hypothesis-driven modeling process to propose a regression model for birthweight.
 
-However, I am automatically excluding `pnumlbw` and `pnumsga` as potential independent variables because their values across the entire sample were all 0, so there cannot be any trends between them and `bwt`.
+I will use run statistical tests to look at the relationship between the continuous outcome, `bwt`, and each independent variable. However, I am automatically excluding `pnumlbw` and `pnumsga` as potential independent variables because their values across the entire sample were all 0, so there cannot be any trends between them and `bwt`.
 
-Here are my ggplots:
+For continuous independent variables, I will run Pearson's correlation using `cor.test`; for binary categorical independent variables, I will run independent samples t-tests using `t.test`; and for categorical independent variables with three or more values, I will run ANOVA using `aov`.
 
-```{r ggplots}
-birthweight_df |>
-  ggplot(aes(x = babysex, y = bwt, group = babysex)) + geom_boxplot()
+Here are the steps I will take and criteria I will use:
 
-birthweight_df |>
-  ggplot(aes(x = bhead, y = bwt)) + geom_point()
+1. I will run the statistical tests.
+2. I will only consider p-values that are statistically significant at p<0.05.
+3. I will use the following criteria to narrow down my independent variables:
 
-birthweight_df |>
-  ggplot(aes(x = blength, y = bwt)) + geom_point()
+     * For statistically significant continuous independent variables (tested with Pearson's correlation): the correlation coefficient estimate must be >0.7 to indicate a strong correlation.
+     * For statistically significant categorical independent variables (tested with independent samples t-tests and ANOVA): I will look at the existing literature online to determine which to include.
 
-birthweight_df |>
-  ggplot(aes(x = delwt, y = bwt)) + geom_point() + geom_smooth(method = "lm")
-
-birthweight_df |>
-  ggplot(aes(x = fincome, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = frace, y = bwt, group = frace)) + geom_violin()
-
-birthweight_df |>
-  ggplot(aes(x = gaweeks, y = bwt)) + geom_point() + geom_smooth(method = "lm")
-
-birthweight_df |>
-  ggplot(aes(x = malform, y = bwt, group = malform)) + geom_boxplot()
-
-birthweight_df |>
-  ggplot(aes(x = menarche, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = mheight, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = momage, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = mrace, y = bwt, group = mrace)) + geom_violin()
-
-birthweight_df |>
-  ggplot(aes(x = parity, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = ppbmi, y = bwt)) + geom_point() + geom_smooth(method = "lm")
-
-birthweight_df |>
-  ggplot(aes(x = ppwt, y = bwt)) + geom_point() + geom_smooth(method = "lm")
-
-birthweight_df |>
-  ggplot(aes(x = smoken, y = bwt)) + geom_point()
-
-birthweight_df |>
-  ggplot(aes(x = wtgain, y = bwt)) + geom_point() + geom_smooth(method = "lm")
-```
+I will include the variables with the strongest numeric and/or theoretical relationships in my model based on the criteria above.
 
 Here are my statistical tests:
 
-```{r correlations}
-cor.test(birthweight_df$bwt, birthweight_df$bhead, method = "pearson") |> broom::tidy()
+```{r statistical tests}
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, bhead), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$blength, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, blength), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$delwt, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, delwt), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$fincome, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, fincome), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$gaweeks, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, gaweeks), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$menarche, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, menarche), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$mheight, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, mheight), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$momage, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, momage), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$parity, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, parity), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$ppbmi, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, ppbmi), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$ppwt, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, ppwt), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$smoken, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, smoken), method = "pearson") |> broom::tidy()
 
-cor.test(birthweight_df$bwt, birthweight_df$wtgain, method = "pearson") |> broom::tidy()
+cor.test(pull(birthweight_df, bwt), pull(birthweight_df, wtgain), method = "pearson") |> broom::tidy()
 
-t.test(birthweight_df$bwt, birthweight_df$babysex) |> broom::tidy()
+t.test(pull(birthweight_df, bwt), pull(birthweight_df, babysex)) |> broom::tidy()
 
-t.test(birthweight_df$bwt, birthweight_df$malform) |> broom::tidy()
+t.test(pull(birthweight_df, bwt), pull(birthweight_df, malform)) |> broom::tidy()
 
 aov(birthweight_df$bwt ~ birthweight_df$frace) |> broom::tidy()
 
 aov(birthweight_df$bwt ~ birthweight_df$mrace) |> broom::tidy()
 ```
 
-The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7 or p-values below alpha = 0.05): bhead, blength, babysex, malform, frace, and mrace.
+The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7): `bhead` and `blength`.
 
-```{r}
+```{r birthweight model}
 model = lm(bwt ~ bhead + blength, data = birthweight_df)
 ```
 
@@ -291,7 +238,7 @@ birthweight_df |>
 
 Now, I will compare my model to two others:
 
-```{r}
+```{r comparison models}
 model_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
 model_2 = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
