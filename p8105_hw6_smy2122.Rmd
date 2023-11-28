@@ -151,6 +151,24 @@ r2_bootstrap
 
 Now, I will identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r-squared and the log of B1 and B2.
 
+```{r}
+r2_bootstrap_ci =
+  r2_bootstrap |>
+  summarize(
+    ci_lower = quantile(r.squared, 0.025),
+    ci_upper = quantile(r.squared, 0.975))
+
+r2_bootstrap_ci
+
+prcp_tmin_bootstrap_ci =
+  prcp_tmin_bootstrap |>
+  summarize(
+    ci_lower = quantile(log, 0.025),
+    ci_upper = quantile(log, 0.975))
+
+prcp_tmin_bootstrap_ci
+```
+
 ## Problem 3
 
 I will import the birthweight data set.

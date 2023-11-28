@@ -512,6 +512,28 @@ r2_bootstrap</code></pre>
 ## # ℹ 4,990 more rows</code></pre>
 <p>Now, I will identify the 2.5% and 97.5% quantiles to provide a 95%
 confidence interval for r-squared and the log of B1 and B2.</p>
+<pre class="r"><code>r2_bootstrap_ci =
+  r2_bootstrap |&gt;
+  summarize(
+    ci_lower = quantile(r.squared, 0.025),
+    ci_upper = quantile(r.squared, 0.975))
+
+r2_bootstrap_ci</code></pre>
+<pre><code>## # A tibble: 1 × 2
+##   ci_lower ci_upper
+##      &lt;dbl&gt;    &lt;dbl&gt;
+## 1    0.888    0.940</code></pre>
+<pre class="r"><code>prcp_tmin_bootstrap_ci =
+  prcp_tmin_bootstrap |&gt;
+  summarize(
+    ci_lower = quantile(log, 0.025),
+    ci_upper = quantile(log, 0.975))
+
+prcp_tmin_bootstrap_ci</code></pre>
+<pre><code>## # A tibble: 1 × 2
+##   ci_lower ci_upper
+##      &lt;dbl&gt;    &lt;dbl&gt;
+## 1    -8.59    -4.59</code></pre>
 </div>
 <div id="problem-3" class="section level2">
 <h2>Problem 3</h2>
