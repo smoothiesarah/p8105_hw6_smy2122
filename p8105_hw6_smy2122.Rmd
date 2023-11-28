@@ -8,8 +8,12 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+As always, I will begin by loading necessary packages. Additionally, I will set my seed for reproducibility.
+
 ```{r message = FALSE}
 library(tidyverse)
+library(modelr)
+library(mgcv)
 set.seed(1)
 ```
 
@@ -165,6 +169,8 @@ birthweight_df =
   mutate(
     frace = as.factor(frace),
     mrace = as.factor(mrace))
+
+## I tried this code but it messed up my t-test: mutate(babysex = case_match(babysex, 1 ~ "male", 2 ~ "female"), malform = case_match(malform, 0 ~ "absent", 1 ~ "present"))
 ```
 
 I will use a combination of a data-driven and theory/hypothesis-driven modeling process to propose a regression model for birthweight.
@@ -180,7 +186,7 @@ Here are the steps I will take and criteria I will use:
 3. I will use the following criteria to narrow down my independent variables:
 
      * For statistically significant continuous independent variables (tested with Pearson's correlation): the correlation coefficient estimate must be >0.7 to indicate a strong correlation.
-     * For statistically significant categorical independent variables (tested with independent samples t-tests and ANOVA): I will look at the existing literature online to determine which to include.
+     * For statistically significant categorical independent variables (tested with independent samples t-tests and ANOVA): I will look at the existing literature online to determine have the strongest relationships AND there must be enough values of all the categories in the birthweight data set to notice differences in birthweight by category.
 
 I will include the variables with the strongest numeric and/or theoretical relationships in my model based on the criteria above.
 
@@ -222,24 +228,86 @@ aov(birthweight_df$bwt ~ birthweight_df$frace) |> broom::tidy()
 aov(birthweight_df$bwt ~ birthweight_df$mrace) |> broom::tidy()
 ```
 
-The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7): `bhead` and `blength`.
+The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7): `bhead`,  `blength`, `babysex`, and `mrace`.
 
 ```{r birthweight model}
-model = lm(bwt ~ bhead + blength, data = birthweight_df)
+bwt_model = lm(bwt ~ bhead + blength + babysex + mrace, data = birthweight_df)
 ```
 
-*Add-predictions & add_residuals
+I will plot the residuals:
 
 ```{r}
 birthweight_df |>
-  modelr::add_residuals(model) |>
+ modelr::add_residuals(bwt_model)
+
+birthweight_df |>
+  modelr::add_residuals(bwt_model) |>
   ggplot(aes(x = bwt, y = resid)) + geom_point() + geom_smooth()
+```
+
+I will plot the fitted values:
+
+```{r}
+modelr::add_predictions(birthweight_df, bwt_model)
+
+birthweight_df |>
+  modelr::add_predictions(bwt_model) |>
+  ggplot(aes(x = bwt, y = pred)) + geom_point() + geom_smooth()
+```
+
+## delete the below
+
+```{r}
+resid_pred =
+  birthweight_df |>
+  modelr::add_predictions(bwt_model) |>
+  modelr::add_residuals(bwt_model) |>
+  select(bwt, resid, pred, everything())
+
+resid_pred |>
+  ggplot(aes(x = bwt)) +
+  geom_point(aes(y = resid), color = "purple", alpha = 0.05) +
+  geom_smooth(aes(y = resid), color = "purple") +
+  geom_point(aes(y = pred), color = "blue", alpha = 0.05) +
+  geom_smooth(aes(y = pred), color = "blue")
 ```
 
 Now, I will compare my model to two others:
 
 ```{r comparison models}
-model_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+option_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
-model_2 = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
+option_2 = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
+```
+
+```{r}
+comparison_df = 
+  crossv_mc(birthweight_df, 100)
+
+comparison_df =
+  comparison_df |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+comparison_df = 
+  comparison_df |> 
+  mutate(
+    hypothesized = map(train, \(df) lm(bwt ~ bhead + blength + babysex + mrace, data = birthweight_df)),
+    option_1 = map(train, \(df) lm(bwt ~ blength + gaweeks, data = birthweight_df)),
+    option_2 = map(train, \(df) lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df))) |>
+  mutate(
+    rmse_hypothesized = map2_dbl(hypothesized, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_option_1 = map2_dbl(option_1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_option_2 = map2_dbl(option_2, test, \(mod, df) rmse(model = mod, data = df)))
+
+comparison_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
