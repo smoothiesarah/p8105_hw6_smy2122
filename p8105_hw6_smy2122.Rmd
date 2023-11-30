@@ -1,14 +1,14 @@
 ---
 title: "Homework 6"
 author: "Sarah Younes"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-As always, I will begin by loading necessary packages. Additionally, I will set my seed for reproducibility.
+As always, I will begin by loading necessary packages: `tidyverse`, `modelr`, and `mgcv`.. Additionally, I will set my seed for reproducibility.
 
 ```{r message = FALSE}
 library(tidyverse)
@@ -85,7 +85,7 @@ tmax_fit = lm(tmax ~ tmin + prcp, data = weather_df)
 tmax_fit
 ```
 
-Next, I will draw 5,000 bootstrap samples and produce estimates of r-squared using `broom::glance`.
+Next, I will draw 5,000 bootstrap samples using `modelr::bootstrap` and produce estimates of r-squared using `broom::glance`.
 
 ```{r r2 bootstrap}
 r2_bootstrap =
@@ -101,9 +101,9 @@ r2_bootstrap =
 r2_bootstrap
 ```
 
-I will draw 5,000 bootstrap samples and produce estimates of log(β̂ 1∗β̂ 2) using `broom::tidy()` and `pivot_wider`.
+I will draw 5,000 bootstrap samples using `modelr::bootstrap` and produce estimates of log(β̂ 1∗β̂ 2) using `broom::tidy()` and `pivot_wider`.
 
-```{r log bootstrap, message = FALSE}
+```{r log bootstrap, message = FALSE, warning = FALSE}
 log_bootstrap =
   weather_df |>
   modelr::bootstrap(n = 5000) |>
@@ -123,40 +123,40 @@ log_bootstrap =
 log_bootstrap
 ```
 
-Since ∗β̂ 2  is negative, `r sum(is.na(pull(log_bootstrap, log)))/5000*100` % of estimates of log from the bootstrap samples were negative and thus returned NaN.
+Since β̂ 2  is negative, `r sum(is.na(pull(log_bootstrap, log)))/5000*100` % of estimates of log from the bootstrap samples were negative and thus returned NaN.
 
 Now, I will plot the distribution of the estimates of r-squared and log(β̂ 1∗β̂ 2) from the bootstrap samples.
 
-```{r distributions}
+```{r r2 distribution}
 r2_bootstrap |>
   ggplot(aes(x = r.squared)) + geom_density()
+```
 
+The density plot for r-squared is unimodal and slightly left-skewed. It shows that the peak is around the mean, which is `r r2_bootstrap |> summarize(mean = mean(r.squared)) |> round(2)`. The minimum is `r r2_bootstrap |> min(pull(r2_bootstrap, r.squared)) |> round(2)` and the maximum is `r r2_bootstrap |> max(pull(r2_bootstrap, r.squared)) |> round(2)`. These r-squared values indicate that the model (in other words, minimum temperature and average precipitation) predicts over `r (r2_bootstrap |> min(pull(r2_bootstrap, r.squared))*100) |> round(2)`% and an average of `r (r2_bootstrap |> summarize(mean = mean(r.squared)))*100 |> round(2)`% of the variability in maximum temperature. These r-squared values indicate that the model is a great fit.
+
+```{r log distribution}
 log_bootstrap |>
   ggplot(aes(x = log)) + geom_density()
 ```
 
-The density plot for r-squared shows that the peak is around the mean, which is `r r2_bootstrap |> summarize(mean = mean(r.squared))`. The minimum is `r r2_bootstrap |> min(pull(r2_bootstrap, r.squared))` and the maximum is `r r2_bootstrap |> max(pull(r2_bootstrap, r.squared))`. These r-squared values indicate that the model (in other words, minimum temperature and average precipitation) predicts over `r (r2_bootstrap |> min(pull(r2_bootstrap, r.squared)))*100`% and an average of `r r2_bootstrap |> summarize(mean = mean(r.squared))` of the variability in maximum temperature. This model is a great fit.
+The density plot for log(β̂ 1∗β̂ 2)  is unimodal and more heavily left-skewed. The peak is greater than the mean of `r log_bootstrap |> drop_na(log) |> summarize(mean = mean(log))`. The minimum is `r log_bootstrap |> drop_na(log) |> min(pull(log_bootstrap, log))` and the maximum is `r log_bootstrap |> drop_na(log) |> min(pull(log_bootstrap, log))`.
 
 Finally, I will identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r-squared and log(β̂ 1∗β̂ 2). However, I dropped negative log values from the bootstrap sample to construct confidence intervals for estimates that are not missing.
 
 ```{r confidence intervals}
-r2_bootstrap_ci =
-  r2_bootstrap |>
-  mutate(
+r2_bootstrap |>
+  summarize(
     ci_lower = quantile(r.squared, 0.025),
     ci_upper = quantile(r.squared, 0.975))
 
-r2_bootstrap_ci
-
-log_bootstrap_ci =
-  log_bootstrap |>
+log_bootstrap |>
   drop_na(log) |>
-  mutate(
+  summarize(
     ci_lower = quantile(log, 0.025, na.rm = TRUE),
     ci_upper = quantile(log, 0.975, na.rm = TRUE))
-
-log_bootstrap_ci
 ```
+
+These confidence intervals for r-squared and log(β̂ 1∗β̂ 2)  are not surprising given the previous density plots.
 
 ## Problem 3
 
@@ -168,9 +168,9 @@ birthweight_df =
   filter(frace != 9) |>
   mutate(
     frace = as.factor(frace),
-    mrace = as.factor(mrace))
-
-## I tried this code but it messed up my t-test: mutate(babysex = case_match(babysex, 1 ~ "male", 2 ~ "female"), malform = case_match(malform, 0 ~ "absent", 1 ~ "present"))
+    mrace = as.factor(mrace),
+    babysex = as.factor(babysex),
+    malform = as.factor(malform))
 ```
 
 I will use a combination of a data-driven and theory/hypothesis-driven modeling process to propose a regression model for birthweight.
@@ -228,6 +228,22 @@ aov(birthweight_df$bwt ~ birthweight_df$frace) |> broom::tidy()
 aov(birthweight_df$bwt ~ birthweight_df$mrace) |> broom::tidy()
 ```
 
+```{r}
+ttest_df =
+  birthweight_df |>
+  mutate(
+    babysex = case_match(
+      babysex,
+      "1" ~ "male",
+      "2" ~ "female")) |>
+  select(babysex, bwt) |>
+  pivot_wider(
+    names_from = "babysex",
+    values_from = "bwt",
+    values_fn = list) |>
+  unnest(cols = c(male, female))
+```
+
 The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7): `bhead`,  `blength`, `babysex`, and `mrace`.
 
 ```{r birthweight model}
@@ -238,9 +254,6 @@ I will plot the residuals:
 
 ```{r}
 birthweight_df |>
- modelr::add_residuals(bwt_model)
-
-birthweight_df |>
   modelr::add_residuals(bwt_model) |>
   ggplot(aes(x = bwt, y = resid)) + geom_point() + geom_smooth()
 ```
@@ -248,37 +261,31 @@ birthweight_df |>
 I will plot the fitted values:
 
 ```{r}
-modelr::add_predictions(birthweight_df, bwt_model)
-
 birthweight_df |>
   modelr::add_predictions(bwt_model) |>
   ggplot(aes(x = bwt, y = pred)) + geom_point() + geom_smooth()
 ```
 
-## delete the below
+I will now plot the residuals against the fitted values:
 
 ```{r}
 resid_pred =
   birthweight_df |>
   modelr::add_predictions(bwt_model) |>
   modelr::add_residuals(bwt_model) |>
-  select(bwt, resid, pred, everything())
-
-resid_pred |>
-  ggplot(aes(x = bwt)) +
-  geom_point(aes(y = resid), color = "purple", alpha = 0.05) +
-  geom_smooth(aes(y = resid), color = "purple") +
-  geom_point(aes(y = pred), color = "blue", alpha = 0.05) +
-  geom_smooth(aes(y = pred), color = "blue")
+  select(bwt, resid, pred, everything()) |>
+  ggplot(aes(x = pred, y = resid)) + geom_point()
 ```
 
-Now, I will compare my model to two others:
+Now, I will create the two comparison models as instructed.
 
 ```{r comparison models}
-option_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+main_effect = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
-option_2 = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
+interaction = lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df)
 ```
+
+Now, I will compare my model to two others.
 
 ```{r}
 comparison_df = 
@@ -294,12 +301,12 @@ comparison_df =
   comparison_df |> 
   mutate(
     hypothesized = map(train, \(df) lm(bwt ~ bhead + blength + babysex + mrace, data = birthweight_df)),
-    option_1 = map(train, \(df) lm(bwt ~ blength + gaweeks, data = birthweight_df)),
-    option_2 = map(train, \(df) lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df))) |>
+    main_effect = map(train, \(df) lm(bwt ~ blength + gaweeks, data = birthweight_df)),
+    interaction = map(train, \(df) lm(bwt ~ bhead + blength + babysex + (bhead * blength * babysex), data = birthweight_df))) |>
   mutate(
     rmse_hypothesized = map2_dbl(hypothesized, test, \(mod, df) rmse(model = mod, data = df)),
-    rmse_option_1 = map2_dbl(option_1, test, \(mod, df) rmse(model = mod, data = df)),
-    rmse_option_2 = map2_dbl(option_2, test, \(mod, df) rmse(model = mod, data = df)))
+    rmse_main_effect = map2_dbl(main_effect, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_interaction = map2_dbl(interaction, test, \(mod, df) rmse(model = mod, data = df)))
 
 comparison_df |> 
   select(starts_with("rmse")) |> 
@@ -311,3 +318,5 @@ comparison_df |>
   mutate(model = fct_inorder(model)) |> 
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
+
+One metric of determining which model has the best fit is by checking which model had the lowest root mean square error (RMSE). My model had the lowest RMSE, so by this metric, my model was the best fit, although the model with interaction terms was a close second.
