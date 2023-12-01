@@ -8,7 +8,7 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-As always, I will begin by loading necessary packages: `tidyverse`, `modelr`, and `mgcv`.. Additionally, I will set my seed for reproducibility.
+As always, I will begin by loading necessary packages: `tidyverse`, `modelr`, and `mgcv`. Additionally, I will set my seed for reproducibility.
 
 ```{r message = FALSE}
 library(tidyverse)
@@ -156,11 +156,13 @@ log_bootstrap |>
     ci_upper = quantile(log, 0.975, na.rm = TRUE))
 ```
 
+We are 95% confident that the true r-squared value lies between `r r2_bootstrap |> summarize(ci_lower = quantile(r.squared, 0.025))` and `r r2_bootstrap |> summarize(ci_lower = quantile(r.squared, 0.975))` and that the true positive log(β̂ 1∗β̂ 2) (since we dropped negative log values) lies between `r log_bootstrap |> drop_na(log) |> summarize(ci_lower = quantile(log, 0.025, na.rm = TRUE))` and `r log_bootstrap |> drop_na(log) |> summarize(ci_lower = quantile(log, 0.975, na.rm = TRUE))`.
+
 These confidence intervals for r-squared and log(β̂ 1∗β̂ 2)  are not surprising given the previous density plots.
 
 ## Problem 3
 
-I will import and clean the birthweight data set. Data cleaning involves removing "Unknown" race values and converting numeric values to factors.
+I will import and start to clean the birthweight data set. Data cleaning involves removing "Unknown" race values and converting numeric values to factors. (I will finish data cleaning later because I could not run part of my code later if I set `babysex` or `malform` as factors.)
 
 ```{r birthweight cleaning, message = FALSE}
 birthweight_df =
@@ -168,9 +170,7 @@ birthweight_df =
   filter(frace != 9) |>
   mutate(
     frace = as.factor(frace),
-    mrace = as.factor(mrace),
-    babysex = as.factor(babysex),
-    malform = as.factor(malform))
+    mrace = as.factor(mrace))
 ```
 
 I will use a combination of a data-driven and theory/hypothesis-driven modeling process to propose a regression model for birthweight.
@@ -228,20 +228,14 @@ aov(birthweight_df$bwt ~ birthweight_df$frace) |> broom::tidy()
 aov(birthweight_df$bwt ~ birthweight_df$mrace) |> broom::tidy()
 ```
 
-```{r}
-ttest_df =
+Note: my t-tests would not run if `babysex` or `malform` were set to factors. Even if I set them to factors during initial data cleaning and set them back to numeric for the t-test, I received many error messages. Thus, I will finish data cleaning now by setting `babysex` and `malform` to factors.
+
+```{r finish data cleaning}
+birthweight_df =
   birthweight_df |>
   mutate(
-    babysex = case_match(
-      babysex,
-      "1" ~ "male",
-      "2" ~ "female")) |>
-  select(babysex, bwt) |>
-  pivot_wider(
-    names_from = "babysex",
-    values_from = "bwt",
-    values_fn = list) |>
-  unnest(cols = c(male, female))
+    babysex = as.factor(babysex),
+    malform = as.factor(malform))
 ```
 
 The following variables showed both high visual relationships from ggplots and high statistical relationships (correlations above r-squared = 0.7): `bhead`,  `blength`, `babysex`, and `mrace`.
@@ -266,6 +260,8 @@ birthweight_df |>
   ggplot(aes(x = bwt, y = pred)) + geom_point() + geom_smooth()
 ```
 
+Since residuals are the difference between the actual values and fitted values, it is good to see that there are not many outliers.
+
 I will now plot the residuals against the fitted values:
 
 ```{r}
@@ -275,7 +271,11 @@ resid_pred =
   modelr::add_residuals(bwt_model) |>
   select(bwt, resid, pred, everything()) |>
   ggplot(aes(x = pred, y = resid)) + geom_point()
+
+resid_pred
 ```
+
+Again, this plot shows that there are not too many outliers, and the fitted values are relatively close to the residuals (difference between fitted and actual). The lower the `bwt` though, the greater the chance of error/noise.
 
 Now, I will create the two comparison models as instructed.
 
